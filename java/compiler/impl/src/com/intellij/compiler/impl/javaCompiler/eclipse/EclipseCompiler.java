@@ -22,7 +22,6 @@ import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.jps.builders.impl.java.EclipseCompilerTool;
 import org.jetbrains.jps.model.java.compiler.JavaCompilers;
 
 import java.util.Collections;
@@ -33,10 +32,6 @@ public class EclipseCompiler implements BackendCompiler {
 
   public EclipseCompiler(Project project) {
     myProject = project;
-  }
-
-  public static boolean isInitialized() {
-    return EclipseCompilerTool.findEcjJarFile() != null;
   }
 
   @NotNull

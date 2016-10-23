@@ -21,6 +21,9 @@ import com.intellij.compiler.CompilerConfigurationImpl;
 import com.intellij.compiler.CompilerWorkspaceConfiguration;
 import com.intellij.compiler.impl.CompilerUtil;
 import com.intellij.compiler.impl.javaCompiler.BackendCompiler;
+import com.intellij.compiler.impl.javaCompiler.eclipse.EclipseCompiler;
+import com.intellij.compiler.impl.javaCompiler.eclipse.EclipseCompilerConfiguration;
+import com.intellij.compiler.impl.javaCompiler.javac.JavacCompiler;
 import com.intellij.compiler.impl.javaCompiler.javac.JavacConfiguration;
 import com.intellij.compiler.server.impl.BuildProcessClasspathManager;
 import com.intellij.concurrency.JobScheduler;
@@ -102,6 +105,9 @@ import org.jetbrains.io.BuiltInServer;
 import org.jetbrains.io.ChannelRegistrar;
 import org.jetbrains.io.NettyKt;
 import org.jetbrains.jps.api.*;
+import org.jetbrains.jps.builders.impl.java.EclipseCompilerTool;
+import org.jetbrains.jps.builders.impl.java.JavacCompilerTool;
+import org.jetbrains.jps.builders.java.JavaCompilingTool;
 import org.jetbrains.jps.cmdline.BuildMain;
 import org.jetbrains.jps.cmdline.ClasspathBootstrap;
 import org.jetbrains.jps.incremental.Utils;
@@ -735,7 +741,7 @@ public class BuildManager implements Disposable {
                   }
                 }
 
-                processHandler = launchBuildProcess(project, myListenPort, sessionId, false);
+                processHandler = launchBuildProcess(project, myListenPort, sessionId, false, ((CompilerConfigurationImpl)CompilerConfiguration.getInstance(project)).getDefaultCompiler());
                 errorsOnLaunch = new StringBuffer();
                 processHandler.addProcessListener(new StdOutputCollector((StringBuffer)errorsOnLaunch));
                 processHandler.startNotify();
@@ -960,7 +966,7 @@ public class BuildManager implements Disposable {
       final RequestFuture<PreloadedProcessMessageHandler> future = new RequestFuture<PreloadedProcessMessageHandler>(new PreloadedProcessMessageHandler(), UUID.randomUUID(), new CancelBuildSessionAction<PreloadedProcessMessageHandler>());
       try {
         myMessageDispatcher.registerBuildMessageHandler(future, null);
-        final OSProcessHandler processHandler = launchBuildProcess(project, myListenPort, future.getRequestID(), true);
+        final OSProcessHandler processHandler = launchBuildProcess(project, myListenPort, future.getRequestID(), true, ((CompilerConfigurationImpl)CompilerConfiguration.getInstance(project)).getDefaultCompiler());
         final StringBuffer errors = new StringBuffer();
         processHandler.addProcessListener(new StdOutputCollector(errors));
         STDERR_OUTPUT.set(processHandler, errors);
@@ -975,7 +981,7 @@ public class BuildManager implements Disposable {
     });
   }
 
-  private OSProcessHandler launchBuildProcess(Project project, final int port, final UUID sessionId, boolean requestProjectPreload) throws ExecutionException {
+  private OSProcessHandler launchBuildProcess(Project project, final int port, final UUID sessionId, boolean requestProjectPreload, BackendCompiler compiler) throws ExecutionException {
     final String compilerPath;
     final String vmExecutablePath;
     JavaSdkVersion sdkVersion = null;
@@ -1159,6 +1165,22 @@ public class BuildManager implements Disposable {
     cmdLine.addParameter(launcherClass.getName());
 
     final List<String> cp = ClasspathBootstrap.getBuildProcessApplicationClasspath(true);
+    JavaCompilingTool compilingTool = null;
+    if (compiler instanceof EclipseCompiler) {
+      //Here.
+      String path = EclipseCompilerConfiguration.getOptions(project, EclipseCompilerConfiguration.class).COMPILER_JAR_LOCATION;
+      compilingTool = new EclipseCompilerTool(path);
+    } else if (compiler instanceof JavacCompiler) {
+      compilingTool = new JavacCompilerTool();
+    }
+
+    if (compilingTool != null) {
+      for (File path : compilingTool.getAdditionalClasspath()) {
+        cp.add(path.getAbsolutePath());
+      }
+    }
+
+
     cp.addAll(myClasspathManager.getBuildProcessPluginsClasspath(project));
     if (isProfilingMode) {
       cp.add(new File(workDirectory, "yjp-controller-api-redist.jar").getPath());

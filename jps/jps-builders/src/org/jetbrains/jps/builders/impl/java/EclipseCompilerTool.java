@@ -37,6 +37,13 @@ import java.util.ServiceLoader;
  * @author nik
  */
 public class EclipseCompilerTool extends JavaCompilingTool {
+  private String compilerPath;
+  public EclipseCompilerTool() {
+    this("");
+  }
+  public EclipseCompilerTool(String compilerPath) {
+    this.compilerPath = compilerPath;
+  }
   @NotNull
   @Override
   public String getId() {
@@ -69,11 +76,11 @@ public class EclipseCompilerTool extends JavaCompilingTool {
   @NotNull
   @Override
   public List<File> getAdditionalClasspath() {
-    return ContainerUtil.createMaybeSingletonList(findEcjJarFile());
+    return ContainerUtil.createMaybeSingletonList(getEcjJarFromConfig());
   }
 
   @Nullable
-  public static File findEcjJarFile() {
+  private static File findEcjJarFile() {
     File[] libs = {new File(PathManager.getHomePath(), "lib"), new File(PathManager.getHomePath(), "community/lib")};
     for (File lib : libs) {
       File[] children = lib.listFiles(new FilenameFilter() {
@@ -87,6 +94,16 @@ public class EclipseCompilerTool extends JavaCompilingTool {
       }
     }
     return null;
+  }
+
+  public File getEcjJarFromConfig() {
+      if (!compilerPath.isEmpty()) {
+        File ecj = new File(compilerPath);
+        if (ecj.exists()) {
+          return ecj;
+        }
+      }
+    return findEcjJarFile();
   }
 
   @Override

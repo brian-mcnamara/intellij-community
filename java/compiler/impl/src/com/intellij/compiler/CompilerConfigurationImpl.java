@@ -372,10 +372,8 @@ public class CompilerConfigurationImpl extends CompilerConfiguration implements 
     myRegisteredCompilers.add(JAVAC_EXTERNAL_BACKEND);
 
     if (!ApplicationManager.getApplication().isUnitTestMode()) {
-      if (EclipseCompiler.isInitialized()) {
-        final EclipseCompiler eclipse = new EclipseCompiler(myProject);
-        myRegisteredCompilers.add(eclipse);
-      }
+      final EclipseCompiler eclipse = new EclipseCompiler(myProject);
+      myRegisteredCompilers.add(eclipse);
     }
 
     final Set<FileType> types = new HashSet<FileType>();

@@ -21,4 +21,5 @@ package org.jetbrains.jps.model.java.compiler;
  */
 public class EclipseCompilerOptions extends JpsJavaCompilerOptions{
   public boolean PROCEED_ON_ERROR = true;
+  public String COMPILER_JAR_LOCATION = "";
 }

@@ -28,7 +28,6 @@ import com.jgoodies.forms.layout.CellConstraints;
 import io.netty.util.NetUtil;
 import net.n3.nanoxml.IXMLBuilder;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.jps.builders.impl.java.EclipseCompilerTool;
 import org.jetbrains.jps.builders.java.JavaCompilingTool;
 import org.jetbrains.jps.builders.java.JavaSourceTransformer;
 import org.jetbrains.jps.javac.ExternalJavacProcess;
@@ -165,11 +164,6 @@ public class ClasspathBootstrap {
     final Class<StandardJavaFileManager> optimizedFileManagerClass = getOptimizedFileManagerClass();
     if (optimizedFileManagerClass != null) {
       cp.add(getResourcePath(optimizedFileManagerClass));  // optimizedFileManager
-    }
-
-    File file = EclipseCompilerTool.findEcjJarFile();
-    if (file != null) {
-      cp.add(file.getAbsolutePath());
     }
   }
 
