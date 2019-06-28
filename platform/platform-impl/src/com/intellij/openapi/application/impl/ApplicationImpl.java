@@ -149,11 +149,16 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
     if (!isUnitTestMode && !isHeadless) {
       Disposer.register(this, Disposer.newDisposable(), "ui");
 
-      StartupUtil.addExternalInstanceListener(args -> invokeLater(() -> {
+      StartupUtil.addExternalInstanceListener(data -> invokeLater(() -> {
         LOG.info("ApplicationImpl.externalInstanceListener invocation");
-        String currentDirectory = args.isEmpty() ? null : args.get(0);
-        List<String> realArgs = args.isEmpty() ? args : args.subList(1, args.size());
+        String currentDirectory = data.getPath();
+        List<String> realArgs = data.getArgs();
         final Project project = CommandLineProcessor.processExternalCommandLine(realArgs, currentDirectory);
+        if (project != null && data.getEnv() != null) {
+          SystemEnvironmentImpl environment = SystemEnvironmentImpl.getInstance(project);
+          environment.setEnvironment(data.getEnv());
+        }
+
         JFrame frame = project == null ? WindowManager.getInstance().findVisibleFrame() :
                        (JFrame)WindowManager.getInstance().getIdeFrame(project);
         if (frame != null) {

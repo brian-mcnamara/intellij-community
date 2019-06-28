@@ -1,6 +1,9 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.idea;
 
+import com.google.common.collect.Lists;
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 import com.intellij.ide.IdeBundle;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
@@ -55,7 +58,8 @@ public final class SocketLock {
 
   private final String myConfigPath;
   private final String mySystemPath;
-  private final AtomicReference<Consumer<List<String>>> myActivateListener = new AtomicReference<>();
+  private final AtomicReference<Consumer<ExternalStartupParams>> myActivateListener = new AtomicReference<>();
+  private final Gson gson = new Gson();
   private String myToken;
   private BuiltInServer myServer;
 
@@ -67,7 +71,7 @@ public final class SocketLock {
     }
   }
 
-  public void setExternalInstanceListener(@Nullable Consumer<List<String>> consumer) {
+  public void setExternalInstanceListener(@Nullable Consumer<ExternalStartupParams> consumer) {
     myActivateListener.set(consumer);
   }
 
@@ -214,7 +218,8 @@ public final class SocketLock {
           try {
             String token = FileUtil.loadFile(new File(mySystemPath, TOKEN_FILE));
             @SuppressWarnings("IOResourceOpenedButNotSafelyClosed") DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-            out.writeUTF(ACTIVATE_COMMAND + token + "\0" + new File(".").getAbsolutePath() + "\0" + StringUtil.join(args, "\0"));
+            ExternalStartupParams data = new ExternalStartupParams(token, Lists.newArrayList(args), new File(".").getAbsolutePath(), System.getenv());
+            out.writeUTF(ACTIVATE_COMMAND + gson.toJson(data));
             out.flush();
             String response = in.readUTF();
             log("read: response=%s", response);
@@ -284,12 +289,13 @@ public final class SocketLock {
     private enum State {HEADER, CONTENT}
 
     private final String[] myLockedPaths;
-    private final AtomicReference<? extends Consumer<List<String>>> myActivateListener;
+    private final AtomicReference<? extends Consumer<ExternalStartupParams>> myActivateListener;
     private final String myToken;
+    private final Gson gson = new Gson();
     private State myState = State.HEADER;
 
     MyChannelInboundHandler(@NotNull String[] lockedPaths,
-                            @NotNull AtomicReference<? extends Consumer<List<String>>> activateListener,
+                            @NotNull AtomicReference<? extends Consumer<ExternalStartupParams>> activateListener,
                             @NotNull String token) {
       myLockedPaths = lockedPaths;
       myActivateListener = activateListener;
@@ -349,9 +355,13 @@ public final class SocketLock {
 
             if (StringUtil.startsWith(command, ACTIVATE_COMMAND)) {
               String data = command.subSequence(ACTIVATE_COMMAND.length(), command.length()).toString();
-              List<String> args = StringUtil.split(data, data.contains("\0") ? "\0" : "\uFFFD");
-
-              boolean tokenOK = !args.isEmpty() && myToken.equals(args.get(0));
+              ExternalStartupParams activateData = null;
+              try {
+                activateData = gson.fromJson(data, ExternalStartupParams.class);
+              } catch (JsonSyntaxException jse) {
+                log(new UnsupportedOperationException("Unable to parse activate data", jse));
+              }
+              boolean tokenOK = activateData != null && myToken.equals(activateData.getToken());
               if (!tokenOK) {
                 log(new UnsupportedOperationException("unauthorized request: " + command));
                 Notifications.Bus.notify(new Notification(
@@ -361,9 +371,9 @@ public final class SocketLock {
                   NotificationType.WARNING));
               }
               else {
-                Consumer<List<String>> listener = myActivateListener.get();
+                Consumer<ExternalStartupParams> listener = myActivateListener.get();
                 if (listener != null) {
-                  listener.consume(args.subList(1, args.size()));
+                  listener.consume(activateData);
                 }
               }
 
