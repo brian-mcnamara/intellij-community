@@ -57,6 +57,7 @@ import org.apache.maven.project.path.DefaultPathTranslator;
 import org.apache.maven.project.path.PathTranslator;
 import org.apache.maven.project.validation.ModelValidationResult;
 import org.apache.maven.repository.RepositorySystem;
+import org.apache.maven.session.scope.internal.SessionScope;
 import org.apache.maven.settings.Settings;
 import org.apache.maven.settings.building.*;
 import org.apache.maven.shared.dependency.tree.DependencyNode;
@@ -808,7 +809,6 @@ public abstract class Maven3XServerEmbedder extends Maven3ServerEmbedder {
   private void loadExtensions(MavenProject project, List<Exception> exceptions) {
     LegacySupport legacySupport = getComponent(LegacySupport.class);
     MavenSession session = legacySupport.getSession();
-    session.setCurrentProject(project);
     List<MavenProject> projectList = Collections.singletonList(project);
     try {
       // the method can be removed
@@ -819,24 +819,21 @@ public abstract class Maven3XServerEmbedder extends Maven3ServerEmbedder {
     session.setProjects(projectList);
     try {
       session.setProjectDependencyGraph(new DefaultProjectDependencyGraph(projectList));
-    } catch (Exception e) {
-
+    } catch (CycleDetectedException e) {
+    } catch (DuplicateProjectException e) {
     }
     ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-    Collection<AbstractMavenLifecycleParticipant> lifecycleParticipants = getLifecycleParticipants(Collections.singletonList(project));
-    if (!lifecycleParticipants.isEmpty()) {
-
-      for (AbstractMavenLifecycleParticipant listener : lifecycleParticipants) {
-        Thread.currentThread().setContextClassLoader(listener.getClass().getClassLoader());
-        try {
-          listener.afterProjectsRead(session);
-        }
-        catch (Exception e) {
-          exceptions.add(e);
-        }
-        finally {
-          Thread.currentThread().setContextClassLoader(originalClassLoader);
-        }
+    Collection<AbstractMavenLifecycleParticipant> lifecycleParticipants = getLifecycleParticipants(projectList);
+    for (AbstractMavenLifecycleParticipant listener : lifecycleParticipants) {
+      Thread.currentThread().setContextClassLoader(listener.getClass().getClassLoader());
+      try {
+        listener.afterProjectsRead(session);
+      }
+      catch (Exception e) {
+        exceptions.add(e);
+      }
+      finally {
+        Thread.currentThread().setContextClassLoader(originalClassLoader);
       }
     }
   }

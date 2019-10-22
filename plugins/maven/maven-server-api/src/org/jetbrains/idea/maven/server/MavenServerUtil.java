@@ -19,6 +19,7 @@ import com.intellij.openapi.util.SystemInfoRt;
 import com.intellij.util.ExceptionUtilRt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.idea.maven.server.security.MavenRestrictedSecurityManager;
 import org.jetbrains.idea.maven.server.security.MavenToken;
 import org.jetbrains.idea.maven.server.security.TokenReader;
 
@@ -115,5 +116,9 @@ public class MavenServerUtil {
     } catch (Throwable e) {
       ExceptionUtilRt.rethrowUnchecked(e);
     }
+  }
+
+  public static void setSecurityManager() {
+    System.setSecurityManager(new MavenRestrictedSecurityManager());
   }
 }
