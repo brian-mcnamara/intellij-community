@@ -29,6 +29,7 @@ import org.apache.maven.artifact.resolver.ArtifactResolver;
 import org.apache.maven.artifact.resolver.ResolutionListener;
 import org.apache.maven.cli.MavenCli;
 import org.apache.maven.execution.*;
+import org.apache.maven.graph.DefaultProjectDependencyGraph;
 import org.apache.maven.model.Activation;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.Plugin;
@@ -69,6 +70,7 @@ import org.codehaus.plexus.context.DefaultContext;
 import org.codehaus.plexus.logging.BaseLoggerManager;
 import org.codehaus.plexus.logging.Logger;
 import org.codehaus.plexus.personality.plexus.lifecycle.phase.InitializationException;
+import org.codehaus.plexus.util.dag.CycleDetectedException;
 import org.eclipse.aether.DefaultRepositorySystemSession;
 import org.eclipse.aether.RepositorySystemSession;
 import org.eclipse.aether.graph.Dependency;
@@ -804,19 +806,25 @@ public abstract class Maven3XServerEmbedder extends Maven3ServerEmbedder {
    * adapted from {@link DefaultMaven#doExecute(MavenExecutionRequest)}
    */
   private void loadExtensions(MavenProject project, List<Exception> exceptions) {
+    LegacySupport legacySupport = getComponent(LegacySupport.class);
+    MavenSession session = legacySupport.getSession();
+    session.setCurrentProject(project);
+    List<MavenProject> projectList = Collections.singletonList(project);
+    try {
+      // the method can be removed
+      session.setAllProjects(projectList);
+    }
+    catch (NoSuchMethodError ignore) {
+    }
+    session.setProjects(projectList);
+    try {
+      session.setProjectDependencyGraph(new DefaultProjectDependencyGraph(projectList));
+    } catch (Exception e) {
+
+    }
     ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
     Collection<AbstractMavenLifecycleParticipant> lifecycleParticipants = getLifecycleParticipants(Collections.singletonList(project));
     if (!lifecycleParticipants.isEmpty()) {
-      LegacySupport legacySupport = getComponent(LegacySupport.class);
-      MavenSession session = legacySupport.getSession();
-      session.setCurrentProject(project);
-      try {
-        // the method can be removed
-        session.setAllProjects(Collections.singletonList(project));
-      }
-      catch (NoSuchMethodError ignore) {
-      }
-      session.setProjects(Collections.singletonList(project));
 
       for (AbstractMavenLifecycleParticipant listener : lifecycleParticipants) {
         Thread.currentThread().setContextClassLoader(listener.getClass().getClassLoader());
