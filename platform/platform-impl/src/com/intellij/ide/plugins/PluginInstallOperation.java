@@ -1,6 +1,8 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.plugins;
 
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Multimap;
 import com.intellij.ide.IdeBundle;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
@@ -92,7 +94,7 @@ public class PluginInstallOperation {
     List<String> hosts = new SmartList<>();
     ContainerUtil.addIfNotNull(hosts, ApplicationInfoEx.getInstanceEx().getBuiltinPluginsUrl());
     hosts.addAll(UpdateSettings.getInstance().getPluginHosts());
-    Map<PluginId, IdeaPluginDescriptor> allPlugins = new HashMap<>();
+    Multimap<PluginId, IdeaPluginDescriptor> allPlugins = HashMultimap.create();
     for (String host : hosts) {
       try {
         List<IdeaPluginDescriptor> descriptors = RepositoryHelper.loadPlugins(host, myIndicator);
@@ -105,8 +107,11 @@ public class PluginInstallOperation {
 
     for (PluginNode node : myPluginsToInstall) {
       if (node.getRepositoryName() == PluginInstaller.UNKNOWN_HOST_MARKER) {
-        IdeaPluginDescriptor descriptor = allPlugins.get(node.getPluginId());
-        if (descriptor != null) {
+        Collection<IdeaPluginDescriptor> descriptors = allPlugins.get(node.getPluginId());
+        if (!descriptors.isEmpty()) {
+          IdeaPluginDescriptor descriptor = descriptors.stream()
+            .filter(pluginDescriptor -> pluginDescriptor.getVersion().equals(node.getVersion()))
+            .findFirst().orElse(descriptors.iterator().next());
           node.setRepositoryName(((PluginNode)descriptor).getRepositoryName());
           node.setDownloadUrl(((PluginNode)descriptor).getDownloadUrl());
         }

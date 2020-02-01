@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * @author stathik
@@ -368,12 +369,12 @@ public final class PluginNode implements IdeaPluginDescriptor {
 
   @Override
   public boolean equals(Object o) {
-    return this == o || o instanceof PluginNode && id == ((PluginNode)o).id;
+    return this == o || o instanceof PluginNode && id == ((PluginNode)o).id && version.equals(((PluginNode)o).version);
   }
 
   @Override
   public int hashCode() {
-    return id.hashCode();
+    return Objects.hash(id, version);
   }
 
   @Override
