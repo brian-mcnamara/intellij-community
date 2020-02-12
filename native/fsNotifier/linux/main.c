@@ -46,7 +46,7 @@
 #define UNFLATTEN(root) (root[0] == '|' ? root + 1 : root)
 
 typedef struct {
-  char* path;
+  array* paths;
   int id;  // negative value means missing root
 } watch_root;
 
@@ -322,9 +322,12 @@ static bool update_roots(array* new_roots) {
 static void unregister_roots() {
   watch_root* root;
   while ((root = array_pop(roots)) != NULL) {
-    userlog(LOG_INFO, "unregistering root: %s", root->path);
+    // userlog(LOG_INFO, "unregistering root: %s", root->path);
     unwatch(root->id);
-    free(root->path);
+    for (int i = 0; i < array_size(root->paths); i++) {
+      free(array_get(root->paths, i));
+    }
+    free(root->paths);
     free(root);
   };
 }
@@ -371,8 +374,10 @@ static bool register_roots(array* new_roots, array* unwatchable, array* mounts) 
       watch_root* root = malloc(sizeof(watch_root));
       CHECK_NULL(root, false);
       root->id = id;
-      root->path = strdup(new_root);
-      CHECK_NULL(root->path, false);
+      root->paths = array_create(1);
+      array_push(root->paths, strdup(new_root));
+      CHECK_NULL(root->paths, false);
+      CHECK_NULL(array_get(root->paths, 0), false);
       CHECK_NULL(array_push(roots, root), false);
     }
     else if (id == ERR_ABORT) {
@@ -493,12 +498,15 @@ static void check_missing_roots() {
   for (int i=0; i<array_size(roots); i++) {
     watch_root* root = array_get(roots, i);
     if (root->id < 0) {
-      char* unflattened = UNFLATTEN(root->path);
-      if (stat(unflattened, &st) == 0) {
-        root->id = watch(root->path, NULL);
-        userlog(LOG_INFO, "root restored: %s\n", root->path);
-        report_event("CREATE", unflattened);
-        report_event("CHANGE", unflattened);
+      for (int y=0; y < array_size(root->paths); y++) {
+        char* path = array_get(root->paths, y);
+        char* unflattened = UNFLATTEN(path);
+        if (stat(unflattened, &st) == 0) {
+          root->id = watch(path, NULL);
+          userlog(LOG_INFO, "root restored: %s\n", path);
+          report_event("CREATE", unflattened);
+          report_event("CHANGE", unflattened);
+        }
       }
     }
   }
@@ -507,11 +515,18 @@ static void check_missing_roots() {
 static void check_root_removal(const char* path) {
   for (int i=0; i<array_size(roots); i++) {
     watch_root* root = array_get(roots, i);
-    if (root->id >= 0 && strcmp(path, UNFLATTEN(root->path)) == 0) {
-      unwatch(root->id);
-      root->id = -1;
-      userlog(LOG_INFO, "root deleted: %s\n", root->path);
-      report_event("DELETE", path);
+    for (int i=0; i<array_size(root->paths); i++) {
+      char* root_path = array_get(root->paths, i);
+      if (root->id >= 0 && strcmp(path, UNFLATTEN(root_path)) == 0) {
+        if (array_size(root->paths) == 1) {
+          unwatch(root->id);
+          root->id = -1;
+          userlog(LOG_INFO, "root deleted: %s\n", root_path);
+          report_event("DELETE", path);
+        } else {
+          //TODO
+        }
+      }
     }
   }
 }

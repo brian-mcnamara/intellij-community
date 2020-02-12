@@ -32,12 +32,16 @@
 
 #define DEFAULT_SUBDIR_COUNT 5
 
+typedef struct _watch_path {
+  int path_len;
+  char path[];
+} watch_path;
+
 typedef struct __watch_node {
   int wd;
   struct __watch_node* parent;
   array* kids;
-  int path_len;
-  char path[];
+  array* paths;
 } watch_node;
 
 static int inotify_fd = -1;
@@ -142,30 +146,43 @@ static int add_watch(int path_len, watch_node* parent) {
   watch_node* node = table_get(watches, wd);
   if (node != NULL) {
     if (node->wd != wd) {
-      userlog(LOG_ERR, "table error: corruption at %d:%s / %d:%s)", wd, path_buf, node->wd, node->path);
+      userlog(LOG_ERR, "table error: corruption at %d:%s / %d:%s)", wd, path_buf, node->wd, ((watch_path*)array_get(node->paths, 0))->path);
       return ERR_ABORT;
     }
-    else if (strcmp(node->path, path_buf) != 0) {
-      char buf1[PATH_MAX], buf2[PATH_MAX];
-      const char* normalized1 = realpath(node->path, buf1);
-      const char* normalized2 = realpath(path_buf, buf2);
-      if (normalized1 == NULL || normalized2 == NULL || strcmp(normalized1, normalized2) != 0) {
-        userlog(LOG_ERR, "table error: collision at %d (new %s, existing %s)", wd, path_buf, node->path);
-        return ERR_ABORT;
-      }
-      else {
-        userlog(LOG_INFO, "intersection at %d: (new %s, existing %s, real %s)", wd, path_buf, node->path, normalized1);
-        return ERR_IGNORE;
+    char buf2[PATH_MAX];
+    const char* normalized_path_buff = realpath(path_buf, buf2);
+    for (int i = 0; i < array_size(node->paths); i++) {
+      const watch_path* wp = array_get(node->paths, i);
+      if (strcmp(wp->path, path_buf) != 0) {
+        char buf1[PATH_MAX] ;
+        const char* normalized1 = realpath(wp->path, buf1);
+        if (normalized1 == NULL || normalized_path_buff == NULL) {
+          userlog(LOG_ERR, "table error: unable to determine real path of either directory %s, %s)", path_buf, ((watch_path*)array_get(node->paths, 0))->path);
+          return ERR_ABORT;
+        } else if (strcmp(normalized1, normalized_path_buff) == 0) {
+          userlog(LOG_INFO, "intersection at %d: (new %s, existing %s, real %s)", wd, path_buf, ((watch_path*)array_get(node->paths, 0))->path, normalized1);
+          return ERR_IGNORE;
+        }
       }
     }
+
+    //If an interection was not found, we have a hard link we need to add the path to
+    watch_path* wp = malloc(sizeof(watch_path) + path_len + 1);
+    memcpy(wp->path, path_buf, path_len + 1);
+    wp->path_len = path_len;
+    array_push(node->paths, wp);
+    userlog(LOG_INFO, "shared inode at %d: (new %s, existing %s)", wd, path_buf, ((watch_path*)array_get(node->paths, 0))->path);
 
     return wd;
   }
 
-  node = malloc(sizeof(watch_node) + path_len + 1);
+  node = malloc(sizeof(watch_node));
   CHECK_NULL(node, ERR_ABORT);
-  memcpy(node->path, path_buf, path_len + 1);
-  node->path_len = path_len;
+  node->paths = array_create(1);
+  watch_path* wp = malloc(sizeof(watch_path) + path_len + 1);
+  memcpy(wp->path, path_buf, path_len + 1);
+  wp->path_len = path_len;
+  array_push(node->paths, wp);
   node->wd = wd;
   node->parent = parent;
   node->kids = NULL;
@@ -199,10 +216,10 @@ static void rm_watch(int wd, bool update_parent) {
     return;
   }
 
-  userlog(LOG_DEBUG, "unwatching %s: %d (%p)", node->path, node->wd, node);
+  userlog(LOG_DEBUG, "unwatching %s: %d (%p)", ((watch_path*)array_get(node->paths, 0))->path, node->wd, node);
 
   if (inotify_rm_watch(inotify_fd, node->wd) < 0) {
-    userlog(LOG_DEBUG, "inotify_rm_watch(%d:%s): %s", node->wd, node->path, strerror(errno));
+    userlog(LOG_DEBUG, "inotify_rm_watch(%d:%s): %s", node->wd, ((watch_path*)array_get(node->paths, 0))->path, strerror(errno));
   }
 
   for (int i=0; i<array_size(node->kids); i++) {
@@ -351,38 +368,46 @@ static bool process_inotify_event(struct inotify_event* event) {
   }
 
   bool is_dir = (event->mask & IN_ISDIR) == IN_ISDIR;
-  userlog(LOG_DEBUG, "inotify: wd=%d mask=%d dir=%d name=%s", event->wd, event->mask & (~IN_ISDIR), is_dir, node->path);
+  userlog(LOG_DEBUG, "inotify: wd=%d mask=%d dir=%d name=%s", event->wd, event->mask & (~IN_ISDIR), is_dir, ((watch_path*)array_get(node->paths, 0))->path);
 
-  int path_len = node->path_len;
-  memcpy(path_buf, node->path, path_len + 1);
-  if (event->len > 0) {
-    path_buf[path_len] = '/';
-    int name_len = strlen(event->name);
-    memcpy(path_buf + path_len + 1, event->name, name_len + 1);
-    path_len += name_len + 1;
-  }
+  for (int i = 0; i < array_size(node->paths); i++) {
+    watch_path* wp = array_get(node->paths, i);
+    int path_len = wp->path_len;
+     memcpy(path_buf, wp->path, path_len + 1);
+     if (event->len > 0) {
+       path_buf[path_len] = '/';
+       int name_len = strlen(event->name);
+       memcpy(path_buf + path_len + 1, event->name, name_len + 1);
+       path_len += name_len + 1;
+     }
 
-  if (callback != NULL) {
-    (*callback)(path_buf, event->mask);
-  }
+     if (callback != NULL) {
+       (*callback)(path_buf, event->mask);
+     }
 
-  if (is_dir && event->mask & (IN_CREATE | IN_MOVED_TO)) {
-    int result = walk_tree(path_len, node, true, NULL);
-    if (result < 0 && result != ERR_IGNORE && result != ERR_CONTINUE) {
-      return false;
-    }
-  }
+     if (is_dir && event->mask & (IN_CREATE | IN_MOVED_TO)) {
+       int result = walk_tree(path_len, node, true, NULL);
+       if (result < 0 && result != ERR_IGNORE && result != ERR_CONTINUE) {
+         return false;
+       }
+     }
 
-  if (is_dir && event->mask & (IN_DELETE | IN_MOVED_FROM)) {
-    for (int i=0; i<array_size(node->kids); i++) {
-      watch_node* kid = array_get(node->kids, i);
-      if (kid != NULL && strncmp(path_buf, kid->path, kid->path_len) == 0) {
-        rm_watch(kid->wd, false);
-        array_put(node->kids, i, NULL);
-        break;
-      }
-    }
-  }
+     if (is_dir && event->mask & (IN_DELETE | IN_MOVED_FROM)) {
+       for (int i=0; i<array_size(node->kids); i++) {
+         watch_node* kid = array_get(node->kids, i);
+         if (array_size(kid->paths) == 1) {
+           watch_path* wp = array_get(kid->paths, 0);
+           if (kid != NULL && strncmp(path_buf, wp->path, wp->path_len) == 0) {
+             rm_watch(kid->wd, false);
+             array_put(node->kids, i, NULL);
+             break;
+           }
+         } else {
+          //TODO
+         }
+       }
+     }
+   }
 
   return true;
 }
